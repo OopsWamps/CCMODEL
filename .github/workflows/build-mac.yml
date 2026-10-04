@@ -1,0 +1,48 @@
+name: Build macOS App
+
+on:
+  workflow_dispatch:      # 手动触发
+  push:
+    tags: ["v*"]          # 推送 v 开头的 tag 时自动触发
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install faster-whisper pillow pyinstaller
+
+      - name: 生成 mac 图标 (icns)
+        run: |
+          mkdir -p icon.iconset
+          for s in 16 32 64 128 256 512; do
+            sips -z $s $s assets/icon.png --out icon.iconset/icon_${s}x${s}.png
+            sips -z $((s*2)) $((s*2)) assets/icon.png --out icon.iconset/icon_${s}x${s}@2x.png
+          done
+          iconutil -c icns icon.iconset -o assets/icon.icns
+
+      - name: PyInstaller 打包
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name "字幕助手"
+          --icon assets/icon.icns
+          --add-data "assets/icon.png:."
+          --add-data "assets/icon.ico:."
+          --collect-all faster_whisper
+          subtitle-assistant-gui/subtitle_gui.py
+
+      - name: 压缩为 zip
+        run: |
+          cd dist
+          ditto -c -k --keepParent "字幕助手.app" "字幕助手-macOS.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subtitle-assistant-macos
+          path: dist/字幕助手-macOS.zip
+          retention-days: 30
