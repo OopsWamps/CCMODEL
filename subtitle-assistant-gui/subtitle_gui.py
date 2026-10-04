@@ -46,6 +46,19 @@ MEDIA_EXTS = {
     ".mp3", ".wav", ".m4a", ".flac", ".aac", ".wma", ".ogg", ".opus",
 }
 
+# 配色：与 assets/icon.png 同一视觉语言 —— 深蓝底、青色字幕条
+BG = "#141e30"          # 窗口底色
+SURFACE = "#1f2b3a"     # 输入框 / 按钮 / 面板
+RAISED = "#27374a"      # hover 与层次
+LOG_BG = "#0d1420"      # 日志区（终端感）
+TEXT = "#e8eef5"        # 主文字
+MUTED = "#8fa3b8"       # 次要文字
+ACCENT = "#00e5ff"      # 青色字幕条
+ACCENT_HOVER = "#4deaff"
+ACCENT_DARK = "#062029"  # 青底上的深色文字
+FONT_UI = "Microsoft YaHei UI"
+FONT_LOG = "Consolas"
+
 
 def fmt_ts(seconds: float) -> str:
     ms = int(round(seconds * 1000))
@@ -72,8 +85,8 @@ class SubtitleApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("本地字幕助手")
-        self.geometry("900x680")
-        self.minsize(720, 520)
+        self.geometry("1200x880")
+        self.minsize(1050, 800)
         self.files: list[Path] = []
         self.events: queue.Queue = queue.Queue()
         self.running = False
@@ -84,60 +97,129 @@ class SubtitleApp(tk.Tk):
         self.output_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="请选择视频/音频文件，或扫描一个目录。")
 
+        self._setup_style()
         self._build_ui()
         apply_window_icon(self)
         self.after(120, self._poll_events)
 
+    def _setup_style(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+
+        style.configure(".", background=BG, foreground=TEXT, font=(FONT_UI, 10))
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=TEXT)
+        style.configure("Muted.TLabel", foreground=MUTED, font=(FONT_UI, 9))
+        style.configure("Header.TLabel", font=(FONT_UI, 16, "bold"))
+        style.configure("Sub.TLabel", foreground=MUTED, font=(FONT_UI, 9))
+
+        # 次要按钮：暗色块，hover 提亮
+        style.configure("TButton", background=SURFACE, foreground=TEXT,
+                        borderwidth=0, focusthickness=0, padding=(12, 5), font=(FONT_UI, 10))
+        style.map("TButton",
+                  background=[("disabled", SURFACE), ("pressed", RAISED), ("active", RAISED)],
+                  foreground=[("disabled", MUTED)])
+
+        # 主操作按钮：青色底、深色字
+        style.configure("Accent.TButton", background=ACCENT, foreground=ACCENT_DARK,
+                        font=(FONT_UI, 10, "bold"), padding=(18, 5))
+        style.map("Accent.TButton",
+                  background=[("disabled", SURFACE), ("pressed", ACCENT_HOVER), ("active", ACCENT_HOVER)],
+                  foreground=[("disabled", MUTED)])
+
+        # 输入框 / 下拉框
+        style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT,
+                        insertcolor=TEXT, borderwidth=0, padding=6)
+        style.configure("TCombobox", fieldbackground=SURFACE, background=RAISED,
+                        foreground=TEXT, arrowcolor=TEXT, borderwidth=0, padding=6)
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", SURFACE)],
+                  foreground=[("readonly", TEXT)])
+        self.option_add("*TCombobox*Listbox.background", SURFACE)
+        self.option_add("*TCombobox*Listbox.foreground", TEXT)
+        self.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        self.option_add("*TCombobox*Listbox.selectForeground", ACCENT_DARK)
+        self.option_add("*TCombobox*Listbox.font", (FONT_UI, 10))
+
+        style.configure("TCheckbutton", background=BG, foreground=TEXT, focuscolor=BG)
+        style.map("TCheckbutton",
+                  background=[("active", BG)],
+                  indicatorcolor=[("selected", ACCENT), ("!selected", SURFACE)])
+
+        style.configure("TLabelframe", background=BG, borderwidth=0)
+        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT,
+                        font=(FONT_UI, 10, "bold"))
+
+        style.configure("Horizontal.TProgressbar", background=ACCENT,
+                        troughcolor=SURFACE, borderwidth=0, thickness=8)
+
     def _build_ui(self):
-        root = ttk.Frame(self, padding=12)
+        root = ttk.Frame(self, padding=(16, 12, 16, 12))
         root.pack(fill="both", expand=True)
+
+        header = ttk.Frame(root)
+        header.pack(fill="x", pady=(0, 10))
+        ttk.Label(header, text="本地字幕助手", style="Header.TLabel").pack(side="left")
+        ttk.Label(header, text="  本地运行 · 数据不出本机", style="Sub.TLabel").pack(side="left", pady=(6, 0))
 
         controls = ttk.Frame(root)
         controls.pack(fill="x")
         self.add_btn = ttk.Button(controls, text="添加文件（可多选）…", command=self.add_files)
-        self.add_btn.pack(side="left", padx=(0, 6))
+        self.add_btn.pack(side="left", padx=(0, 8))
         self.scan_btn = ttk.Button(controls, text="选择目录并扫描…", command=self.scan_folder)
-        self.scan_btn.pack(side="left", padx=6)
-        ttk.Checkbutton(controls, text="包括子文件夹", variable=self.recursive_var).pack(side="left", padx=8)
-        ttk.Button(controls, text="移除选中", command=self.remove_selected).pack(side="right", padx=(6, 0))
-        ttk.Button(controls, text="清空列表", command=self.clear_files).pack(side="right", padx=6)
+        self.scan_btn.pack(side="left")
+        ttk.Checkbutton(controls, text="包括子文件夹", variable=self.recursive_var).pack(side="left", padx=(12, 0))
+        ttk.Button(controls, text="移除选中", command=self.remove_selected).pack(side="right")
+        ttk.Button(controls, text="清空列表", command=self.clear_files).pack(side="right", padx=(0, 8))
 
-        ttk.Label(root, text="文件列表（可用 Ctrl / Shift 多选）：").pack(anchor="w", pady=(12, 4))
+        ttk.Label(root, text="文件列表（Ctrl / Shift 多选）", style="Muted.TLabel").pack(anchor="w", pady=(10, 4))
         list_frame = ttk.Frame(root)
         list_frame.pack(fill="both", expand=True)
-        self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, exportselection=False, height=12)
+        self.listbox = tk.Listbox(
+            list_frame, selectmode=tk.EXTENDED, exportselection=False, height=6,
+            bg=SURFACE, fg=TEXT,
+            selectbackground=ACCENT, selectforeground=ACCENT_DARK,
+            relief="flat", highlightthickness=0, activestyle="none",
+            font=(FONT_UI, 10),
+        )
         self.listbox.pack(side="left", fill="both", expand=True)
         scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
         scroll.pack(side="right", fill="y")
         self.listbox.configure(yscrollcommand=scroll.set)
 
-        opts = ttk.LabelFrame(root, text="转写设置", padding=10)
-        opts.pack(fill="x", pady=(12, 0))
+        opts = ttk.LabelFrame(root, text=" 转写设置 ", padding=(12, 8))
+        opts.pack(fill="x", pady=(10, 0))
         ttk.Label(opts, text="模型：").grid(row=0, column=0, sticky="w")
         ttk.Combobox(opts, textvariable=self.model_var, state="readonly", width=14,
-                     values=("tiny", "base", "small", "medium", "large-v3")).grid(row=0, column=1, sticky="w", padx=(4, 18))
+                     values=("tiny", "base", "small", "medium", "large-v3")).grid(row=0, column=1, sticky="w", padx=(6, 20))
         ttk.Label(opts, text="语言：").grid(row=0, column=2, sticky="w")
         ttk.Combobox(opts, textvariable=self.lang_var, state="readonly", width=16,
-                     values=("中文 (zh)", "自动检测", "English (en)")).grid(row=0, column=3, sticky="w", padx=4)
-        ttk.Label(opts, text="small 推荐；模型首次使用时会下载，之后可离线使用。默认 CPU 模式，不依赖 CUDA。", foreground="#555").grid(
-            row=1, column=0, columnspan=5, sticky="w", pady=(8, 2))
+                     values=("中文 (zh)", "自动检测", "English (en)")).grid(row=0, column=3, sticky="w", padx=6)
+        ttk.Label(opts, text="small 推荐；模型首次使用时下载，之后离线可用；CPU 模式，无需 CUDA。",
+                  style="Muted.TLabel").grid(row=1, column=0, columnspan=5, sticky="w", pady=(6, 0))
 
         outrow = ttk.Frame(root)
         outrow.pack(fill="x", pady=(10, 0))
         ttk.Label(outrow, text="输出目录（留空则与每个源文件放在一起）：").pack(side="left")
-        ttk.Entry(outrow, textvariable=self.output_var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Entry(outrow, textvariable=self.output_var).pack(side="left", fill="x", expand=True, padx=8)
         ttk.Button(outrow, text="浏览…", command=self.choose_output).pack(side="right")
 
         bottom = ttk.Frame(root)
         bottom.pack(fill="x", pady=(12, 0))
-        self.start_btn = ttk.Button(bottom, text="开始批量转写", command=self.start)
+        self.start_btn = ttk.Button(bottom, text="开始批量转写", style="Accent.TButton", command=self.start)
         self.start_btn.pack(side="left")
         self.progress = ttk.Progressbar(bottom, mode="determinate")
-        self.progress.pack(side="left", fill="x", expand=True, padx=10)
-        ttk.Label(bottom, textvariable=self.status_var, width=28).pack(side="right")
+        self.progress.pack(side="left", fill="x", expand=True, padx=12)
+        ttk.Label(bottom, textvariable=self.status_var, style="Muted.TLabel").pack(side="right")
 
-        ttk.Label(root, text="运行日志：").pack(anchor="w", pady=(10, 4))
-        self.log = tk.Text(root, height=8, wrap="word", state="disabled")
+        ttk.Label(root, text="运行日志", style="Muted.TLabel").pack(anchor="w", pady=(8, 4))
+        self.log = tk.Text(
+            root, height=5, wrap="word", state="disabled",
+            bg=LOG_BG, fg="#9fb8cc", insertbackground=TEXT,
+            relief="flat", highlightthickness=0,
+            selectbackground=RAISED, selectforeground=TEXT,
+            font=(FONT_LOG, 9), padx=10, pady=8,
+        )
         self.log.pack(fill="both", expand=False)
 
     def _log(self, text: str):
@@ -295,4 +377,10 @@ class SubtitleApp(tk.Tk):
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
     SubtitleApp().mainloop()
