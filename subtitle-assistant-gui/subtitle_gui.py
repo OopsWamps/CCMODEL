@@ -3,11 +3,43 @@
 """本地字幕助手：选择文件/目录，多选媒体文件并批量生成 SRT/TXT。"""
 
 import queue
+import sys
 import threading
 import traceback
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+
+
+def app_icon_path(suffix: str = ".png") -> Path | None:
+    """定位应用图标：打包后在 _MEIPASS 内，源码运行在项目 assets/ 目录。"""
+    if hasattr(sys, "_MEIPASS"):
+        path = Path(sys._MEIPASS) / f"icon{suffix}"
+    else:
+        path = Path(__file__).resolve().parent.parent / "assets" / f"icon{suffix}"
+    return path if path.exists() else None
+
+
+def apply_window_icon(window: tk.Tk) -> None:
+    """设置窗口与任务栏图标。Windows 下先注册独立 AppUserModelID，
+    让任务栏把本程序当作独立应用而不是 Python 解释器。"""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ccmodel.subtitle.assistant")
+        except Exception:
+            pass
+    ico = app_icon_path(".ico")
+    if ico:
+        try:
+            window.iconbitmap(str(ico))
+            return
+        except tk.TclError:
+            pass
+    png = app_icon_path(".png")
+    if png:
+        window._icon_img = tk.PhotoImage(file=str(png))  # 持有引用，防止被回收
+        window.iconphoto(True, window._icon_img)
 
 MEDIA_EXTS = {
     ".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".ts",
@@ -53,6 +85,7 @@ class SubtitleApp(tk.Tk):
         self.status_var = tk.StringVar(value="请选择视频/音频文件，或扫描一个目录。")
 
         self._build_ui()
+        apply_window_icon(self)
         self.after(120, self._poll_events)
 
     def _build_ui(self):
