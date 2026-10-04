@@ -10,6 +10,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from PIL import Image, ImageDraw, ImageTk
+
 
 def app_icon_path(suffix: str = ".png") -> Path | None:
     """定位应用图标：打包后在 _MEIPASS 内，源码运行在项目 assets/ 目录。"""
@@ -46,16 +48,22 @@ MEDIA_EXTS = {
     ".mp3", ".wav", ".m4a", ".flac", ".aac", ".wma", ".ogg", ".opus",
 }
 
-# 配色：与 assets/icon.png 同一视觉语言 —— 深蓝底、青色字幕条
-BG = "#141e30"          # 窗口底色
-SURFACE = "#1f2b3a"     # 输入框 / 按钮 / 面板
-RAISED = "#27374a"      # hover 与层次
-LOG_BG = "#0d1420"      # 日志区（终端感）
-TEXT = "#e8eef5"        # 主文字
-MUTED = "#8fa3b8"       # 次要文字
-ACCENT = "#00e5ff"      # 青色字幕条
-ACCENT_HOVER = "#4deaff"
-ACCENT_DARK = "#062029"  # 青底上的深色文字
+# 配色：浅色系，青色主色与 assets/icon.png 呼应
+BG = "#f4f7fb"           # 窗口底色（浅蓝白）
+SURFACE = "#ffffff"      # 卡片 / 输入框 / 按钮白
+RAISED = "#eef4fa"       # hover 浅蓝
+BORDER = "#d9e2ec"       # 浅灰蓝边框
+LOG_BG = "#0f1923"       # 日志区保留深色终端感
+LOG_FG = "#a8c0d0"
+TEXT = "#1d2b3a"         # 主文字（深蓝）
+MUTED = "#5f7385"        # 次要文字
+ACCENT = "#00c2e0"       # 主按钮青
+ACCENT_HOVER = "#2fd0ea"
+ACCENT_PRESSED = "#00a8c4"
+ACCENT_TEXT = "#0286a8"  # 浅底上的青色文字
+ACCENT_DARK = "#04252e"  # 青底上的深色文字
+DISABLED_BG = "#f0f4f8"
+DISABLED_FG = "#9aa9b7"
 FONT_UI = "Microsoft YaHei UI"
 FONT_LOG = "Consolas"
 
@@ -102,6 +110,19 @@ class SubtitleApp(tk.Tk):
         apply_window_icon(self)
         self.after(120, self._poll_events)
 
+    @staticmethod
+    def _pill(fill: str, outline: str | None, master: tk.Tk) -> ImageTk.PhotoImage:
+        """生成圆角按钮九宫格贴图：4x 超采样绘制后缩小，边缘平滑。"""
+        w, h, r, ss = 64, 38, 12, 4
+        img = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rounded_rectangle(
+            (0, 0, w * ss - 1, h * ss - 1), radius=r * ss,
+            fill=fill, outline=outline, width=ss if outline else 0,
+        )
+        img = img.resize((w, h), Image.LANCZOS)
+        return ImageTk.PhotoImage(img, master=master)
+
     def _setup_style(self):
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -113,45 +134,77 @@ class SubtitleApp(tk.Tk):
         style.configure("Header.TLabel", font=(FONT_UI, 16, "bold"))
         style.configure("Sub.TLabel", foreground=MUTED, font=(FONT_UI, 9))
 
-        # 次要按钮：暗色块，hover 提亮
-        style.configure("TButton", background=SURFACE, foreground=TEXT,
-                        borderwidth=0, focusthickness=0, padding=(12, 5), font=(FONT_UI, 10))
-        style.map("TButton",
-                  background=[("disabled", SURFACE), ("pressed", RAISED), ("active", RAISED)],
-                  foreground=[("disabled", MUTED)])
+        # 圆角按钮：ttk 不支持原生圆角，用 PIL 九宫格贴图注册为图片元素。
+        # 状态顺序：disabled / pressed 优先匹配，避免 hover 态遮住按下态。
+        self._btn_images = {
+            "sec": self._pill(SURFACE, BORDER, self),
+            "sec_h": self._pill(RAISED, "#c3d2e0", self),
+            "sec_p": self._pill("#e2ebf3", "#b4c6d6", self),
+            "sec_d": self._pill(DISABLED_BG, "#e3e9ef", self),
+            "acc": self._pill(ACCENT, None, self),
+            "acc_h": self._pill(ACCENT_HOVER, None, self),
+            "acc_p": self._pill(ACCENT_PRESSED, None, self),
+            "acc_d": self._pill(DISABLED_BG, None, self),
+        }
+        style.element_create(
+            "Sec.btn", "image", self._btn_images["sec"],
+            ("disabled", self._btn_images["sec_d"]),
+            ("pressed", self._btn_images["sec_p"]),
+            ("active", self._btn_images["sec_h"]),
+            border=(16, 16, 16, 16), padding=(14, 0), sticky="nsew",
+        )
+        style.layout("TButton", [("Sec.btn", {"sticky": "nsew", "children": [
+            ("Button.label", {"sticky": "nsew"})]})])
+        style.configure("TButton", background=BG, foreground=TEXT,
+                        borderwidth=0, focusthickness=0, font=(FONT_UI, 10))
+        style.map("TButton", foreground=[("disabled", DISABLED_FG)])
 
-        # 主操作按钮：青色底、深色字
-        style.configure("Accent.TButton", background=ACCENT, foreground=ACCENT_DARK,
-                        font=(FONT_UI, 10, "bold"), padding=(18, 5))
-        style.map("Accent.TButton",
-                  background=[("disabled", SURFACE), ("pressed", ACCENT_HOVER), ("active", ACCENT_HOVER)],
-                  foreground=[("disabled", MUTED)])
+        style.element_create(
+            "Acc.btn", "image", self._btn_images["acc"],
+            ("disabled", self._btn_images["acc_d"]),
+            ("pressed", self._btn_images["acc_p"]),
+            ("active", self._btn_images["acc_h"]),
+            border=(16, 16, 16, 16), padding=(18, 0), sticky="nsew",
+        )
+        style.layout("Accent.TButton", [("Acc.btn", {"sticky": "nsew", "children": [
+            ("Button.label", {"sticky": "nsew"})]})])
+        style.configure("Accent.TButton", background=BG, foreground=ACCENT_DARK,
+                        borderwidth=0, focusthickness=0, font=(FONT_UI, 10, "bold"))
+        style.map("Accent.TButton", foreground=[("disabled", DISABLED_FG)])
 
-        # 输入框 / 下拉框
+        # 输入框 / 下拉框：白底、浅边框
         style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT,
-                        insertcolor=TEXT, borderwidth=0, padding=6)
+                        insertcolor=TEXT, bordercolor=BORDER, lightcolor=BORDER,
+                        darkcolor=BORDER, borderwidth=1, padding=6)
         style.configure("TCombobox", fieldbackground=SURFACE, background=RAISED,
-                        foreground=TEXT, arrowcolor=TEXT, borderwidth=0, padding=6)
+                        foreground=TEXT, arrowcolor=TEXT, bordercolor=BORDER,
+                        lightcolor=BORDER, darkcolor=BORDER, borderwidth=1, padding=6)
         style.map("TCombobox",
                   fieldbackground=[("readonly", SURFACE)],
-                  foreground=[("readonly", TEXT)])
+                  foreground=[("readonly", TEXT)],
+                  bordercolor=[("focus", ACCENT)],
+                  lightcolor=[("focus", ACCENT)],
+                  darkcolor=[("focus", ACCENT)])
         self.option_add("*TCombobox*Listbox.background", SURFACE)
         self.option_add("*TCombobox*Listbox.foreground", TEXT)
         self.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
         self.option_add("*TCombobox*Listbox.selectForeground", ACCENT_DARK)
         self.option_add("*TCombobox*Listbox.font", (FONT_UI, 10))
 
-        style.configure("TCheckbutton", background=BG, foreground=TEXT, focuscolor=BG)
+        style.configure("TCheckbutton", background=BG, foreground=TEXT,
+                        focuscolor=BG, bordercolor=BORDER)
         style.map("TCheckbutton",
                   background=[("active", BG)],
-                  indicatorcolor=[("selected", ACCENT), ("!selected", SURFACE)])
+                  indicatorcolor=[("selected", ACCENT), ("!selected", SURFACE)],
+                  bordercolor=[("selected", ACCENT)])
 
-        style.configure("TLabelframe", background=BG, borderwidth=0)
-        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT,
+        style.configure("TLabelframe", background=BG, bordercolor=BORDER,
+                        relief="solid", borderwidth=1)
+        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT_TEXT,
                         font=(FONT_UI, 10, "bold"))
 
         style.configure("Horizontal.TProgressbar", background=ACCENT,
-                        troughcolor=SURFACE, borderwidth=0, thickness=8)
+                        troughcolor="#e4ebf2", borderwidth=0, thickness=8)
 
     def _build_ui(self):
         root = ttk.Frame(self, padding=(16, 12, 16, 12))
@@ -215,7 +268,7 @@ class SubtitleApp(tk.Tk):
         ttk.Label(root, text="运行日志", style="Muted.TLabel").pack(anchor="w", pady=(8, 4))
         self.log = tk.Text(
             root, height=5, wrap="word", state="disabled",
-            bg=LOG_BG, fg="#9fb8cc", insertbackground=TEXT,
+            bg=LOG_BG, fg=LOG_FG, insertbackground=TEXT,
             relief="flat", highlightthickness=0,
             selectbackground=RAISED, selectforeground=TEXT,
             font=(FONT_LOG, 9), padx=10, pady=8,
