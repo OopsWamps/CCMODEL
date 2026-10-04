@@ -7,6 +7,11 @@ __pycache__/
 # 视频素材（体积过大，不入库）
 video/
 
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db
